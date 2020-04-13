@@ -36,8 +36,6 @@ class AutoEncoder(nn.Module):
         return lgem
 
     def forward(self, x):
-        # change [batchsize, n1, n2] to [batchsize, n1*n2], which can meet nn.Linear's params:[in_features, out_features]
-        x = x.view(x.size(0), -1)
         encode = self.encoder(x)
 
         if self.training:
@@ -58,7 +56,6 @@ class AutoEncoder(nn.Module):
         return encode.detach() #RuntimeError: Trying to backward through the graph a second time, but the buffers have already been freed.
 
     def reconstruct(self, x):
-        x = x.view(x.size(0), -1)
         return self.decoder(x)
 
 
@@ -68,22 +65,37 @@ class StackAutoencoder(nn.Module):
         self.ae1 = AutoEncoder(n_in, 128, 1e-3)
         self.ae2 = AutoEncoder(128, 64, 1e-3)
         self.ae3 = AutoEncoder(64, 32, 1e-3)
+        self.fc = nn.Linear(n_in, 1)
+        self.fc_loss = nn.MSELoss()
+        self.fc_optimizer = optim.Adam(self.parameters(), 1e-3)
 
-    def forward(self, x):
+    def forward(self, x, y):
+        # change [batchsize, n1, n2] to [batchsize, n1*n2], which can meet nn.Linear's params:[in_features, out_features]
+        x = x.view(x.size(0), -1)
+        y = y.view(y.size(0), -1)
         encode1 = self.ae1(x)
         encode2 = self.ae2(encode1)
         encode3 = self.ae3(encode2)
 
         if self.training:
-            return encode3
+            x_reconstuct, product_predict = self.reconstruct(encode3)
+            fc_loss = self.fc_loss(y, product_predict)
+            self.fc_optimizer.zero_grad()
+            fc_loss.backward()
+            self.fc_optimizer.step()
+            print('[Epoch %3d, Batch %3d] loss: %.5f' %
+                  (epoch + 1, step + 1, fc_loss.item()))
+            return encode3, x_reconstuct, product_predict
         else:
             return encode3, self.reconstruct(encode3)
 
     def reconstruct(self, x):
+        x = x.view(x.size(0), -1)
         ae2_reconstruct = self.ae3.reconstruct(x)
         ae1_reconstruct = self.ae2.reconstruct(ae2_reconstruct)
         x_reconstruct = self.ae1.reconstruct(ae1_reconstruct)
-        return x_reconstruct
+        product_predict = self.fc(x_reconstruct)
+        return x_reconstruct, product_predict
 
 
 # =============================================================================
@@ -156,7 +168,12 @@ if __name__ == '__main__':
         total_time = time.time()
         for step, (x, y) in enumerate(train_loader):
             model = model.float()
-            encode = model(x.float())
+            encode, decode, predict_product = model(x.float(), y.float())
+            print("x max:%.5f,  min:%.5f" % (torch.max(x).item(), torch.min(x).item()))
+            print("encode max:%.5f,  min:%.5f" % (torch.max(encode).item(), torch.min(encode).item()))
+            print("decode max:%.5f,  min:%.5f"% (torch.max(decode).item(), torch.min(decode).item()))
+            print("y max:%.5f,  min:%.5f" % (torch.max(y).item(), torch.min(y).item()))
+            print("output max:%.5f,  min:%.5f" % (torch.max(predict_product).item(), torch.min(predict_product).item()))
 
 
     # print('Begin test')
