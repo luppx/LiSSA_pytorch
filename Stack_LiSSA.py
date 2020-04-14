@@ -67,7 +67,7 @@ class StackAutoencoder(nn.Module):
         self.ae3 = AutoEncoder(64, 32, 1e-3)
         self.fc = nn.Linear(n_in, 1)
         self.fc_loss = nn.MSELoss()
-        self.fc_optimizer = optim.Adam(self.parameters(), 1e-3)
+        self.fc_optimizer = optim.Adam(self.parameters(), 3e-3)
 
     def forward(self, x, y):
         # change [batchsize, n1, n2] to [batchsize, n1*n2], which can meet nn.Linear's params:[in_features, out_features]
@@ -94,7 +94,7 @@ class StackAutoencoder(nn.Module):
         ae2_reconstruct = self.ae3.reconstruct(x)
         ae1_reconstruct = self.ae2.reconstruct(ae2_reconstruct)
         x_reconstruct = self.ae1.reconstruct(ae1_reconstruct)
-        product_predict = self.fc(x_reconstruct)
+        product_predict = self.fc(x_reconstruct * max)
         return x_reconstruct, product_predict
 
 
@@ -153,7 +153,9 @@ if __name__ == '__main__':
     n_out = 1
     LR = 1e-3
     datapath = './data0407.xlsx'
-    
+    frame = pd.read_excel(datapath, usecols="A:GM")
+    max = float(frame.stack().max())
+
     data = LoadData(datapath)
     train_size = int(0.8 * len(data))
     test_size = len(data) - train_size
@@ -161,28 +163,23 @@ if __name__ == '__main__':
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True)
 
+
     model = StackAutoencoder(n_in)
     print("Start training")
     for epoch in range(100):
         model.train(mode=True) #tells model that you are training the model.
         total_time = time.time()
         for step, (x, y) in enumerate(train_loader):
+            x = x.float() / max  # Normalize input to 0-1
+            y = y.float()
             model = model.float()
-            encode, decode, predict_product = model(x.float(), y.float())
+            encode, decode, predict_product = model(x, y)
+
+            # debug
             print("x max:%.5f,  min:%.5f" % (torch.max(x).item(), torch.min(x).item()))
             print("encode max:%.5f,  min:%.5f" % (torch.max(encode).item(), torch.min(encode).item()))
             print("decode max:%.5f,  min:%.5f"% (torch.max(decode).item(), torch.min(decode).item()))
             print("y max:%.5f,  min:%.5f" % (torch.max(y).item(), torch.min(y).item()))
             print("output max:%.5f,  min:%.5f" % (torch.max(predict_product).item(), torch.min(predict_product).item()))
 
-
-    # print('Begin test')
-    # for step, (test_x, test_y) in enumerate(test_loader):
-    #     model = model.float()
-    #     _, test_decode = model(test_x.float())
-    #     loss = lgem_loss(test_x, test_decode)
-    #     print('[Epoch %3d, Batch %3d] loss: %.5f' %
-    #           (epoch + 1, step + 1, loss.item()))
-
-
-    print('done')
+    print("Complete training")
