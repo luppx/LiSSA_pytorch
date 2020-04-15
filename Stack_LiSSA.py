@@ -65,7 +65,7 @@ class StackAutoencoder(nn.Module):
         self.ae1 = AutoEncoder(n_in, 128, 1e-3)
         self.ae2 = AutoEncoder(128, 64, 1e-3)
         self.ae3 = AutoEncoder(64, 32, 1e-3)
-        self.fc = nn.Linear(n_in, 1)
+        self.fc = nn.Linear(32, 1)
         self.fc_loss = nn.MSELoss()
         self.fc_optimizer = optim.Adam(self.parameters(), 3e-3)
 
@@ -76,26 +76,24 @@ class StackAutoencoder(nn.Module):
         encode1 = self.ae1(x)
         encode2 = self.ae2(encode1)
         encode3 = self.ae3(encode2)
+        product_predict = self.fc(encode3 * max)
 
         if self.training:
-            x_reconstuct, product_predict = self.reconstruct(encode3)
             fc_loss = self.fc_loss(y, product_predict)
             self.fc_optimizer.zero_grad()
             fc_loss.backward()
             self.fc_optimizer.step()
             print('[Epoch %3d, Batch %3d] loss: %.5f' %
                   (epoch + 1, step + 1, fc_loss.item()))
-            return encode3, x_reconstuct, product_predict
-        else:
-            return encode3, self.reconstruct(encode3)
+
+        return encode3, product_predict
 
     def reconstruct(self, x):
         x = x.view(x.size(0), -1)
         ae2_reconstruct = self.ae3.reconstruct(x)
         ae1_reconstruct = self.ae2.reconstruct(ae2_reconstruct)
         x_reconstruct = self.ae1.reconstruct(ae1_reconstruct)
-        product_predict = self.fc(x_reconstruct * max)
-        return x_reconstruct, product_predict
+        return x_reconstruct
 
 
 # =============================================================================
@@ -173,12 +171,11 @@ if __name__ == '__main__':
             x = x.float() / max  # Normalize input to 0-1
             y = y.float()
             model = model.float()
-            encode, decode, predict_product = model(x, y)
+            encode, predict_product = model(x, y)
 
             # debug
             print("x max:%.5f,  min:%.5f" % (torch.max(x).item(), torch.min(x).item()))
             print("encode max:%.5f,  min:%.5f" % (torch.max(encode).item(), torch.min(encode).item()))
-            print("decode max:%.5f,  min:%.5f"% (torch.max(decode).item(), torch.min(decode).item()))
             print("y max:%.5f,  min:%.5f" % (torch.max(y).item(), torch.min(y).item()))
             print("output max:%.5f,  min:%.5f" % (torch.max(predict_product).item(), torch.min(predict_product).item()))
 
